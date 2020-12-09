@@ -5,14 +5,24 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 set_value = lambda arg: True
+close_float = lambda x, y: abs(x-y) < 1e-10
 
 print()
 while True:
     try:
         if (dimensions := int(input("Dimensions (note 2 or 3 are plottable) : "))) < 2:
-            raise Exception("Invalid, input an integer greater than 1.")
+            raise Exception("Invalid, input an integer greater than or equal to 2.")
         if (number_of_points := int(input("Number of points : "))) < 2:
-            raise Exception("Invalid, input an integer greater than 1.")
+            raise Exception("Invalid, input an integer greater than or equal to 2.")
+        cycle_flag = input("Full cycle? (True/False) : ")
+        if cycle_flag in ("True", "true"):
+            cycle_flag = True
+        elif cycle_flag in ("False", "false"):
+            cycle_flag = False
+        else:
+            raise Exception("Invalid, input either True or False.")
+        if (max_no_change := int(input("Number of generations without change before stopping : "))) < 2:
+            raise Exception("Invalid, input an integer greater than or equal to 1.")
         break
     except Exception as e:
         print(e)
@@ -29,7 +39,7 @@ data = [
     in range(number_of_points)
 ]
 
-# The distance squared between two points
+# The distance between two points
 dist = lambda pnt_1, pnt_2:\
     sum(
         (x1 - x2) ** 2
@@ -43,9 +53,8 @@ ga = EasyGA.GA()
 # Use permutation methods
 ga.permutation_chromosomes()
 
-# Run for this many generations
-ga.generation_goal = None
-max_no_change = 50
+# Run for at most this many generations for safety
+ga.generation_goal = 1000
 
 # Use 5 chromosomes per gene/point
 ga.population_size = 10 * number_of_points
@@ -99,9 +108,9 @@ ga.initialization_impl = initialization_impl
 # points in the chromosome in the given order.
 ga.fitness_function_impl = lambda chromosome:\
     sum(
-        sqrt(dist(gene_1.value, gene_2.value))
-        for gene_1, gene_2
-        in zip(chromosome[:-1], chromosome[1:])
+        sqrt(dist(chromosome[i].value, chromosome[i-1].value))
+        for i
+        in range((0 if cycle_flag else 1), len(chromosome))
     )
 
 ga.target_fitness_type = 'min'
@@ -158,7 +167,7 @@ best_generation = 0
 count = -1
 
 widths = [
-    -0.1 + max(
+    max(
         abs(data[i][k] - data[j][k])
         for i in range(1, len(data))
         for j in range(i)
@@ -167,11 +176,11 @@ widths = [
 ]
 
 if dimensions == 2:
-    fig = plt.figure(figsize = [10, 10])
+    fig = plt.figure(figsize = [8, 8])
     ax = fig.add_subplot(111)
 
 elif dimensions == 3:
-    fig = plt.figure(figsize = [10, 10])
+    fig = plt.figure(figsize = [8, 8])
     ax = fig.add_subplot(111, projection = '3d')
 
 while ga.active() and ga.current_generation < best_generation + max_no_change:
@@ -179,23 +188,26 @@ while ga.active() and ga.current_generation < best_generation + max_no_change:
     ga.evolve_generation()
 
     # Only show if something new happens
-    if best_fitness != ga.population[0].fitness:
+    if not close_float(best_fitness, ga.population[0].fitness):
         best_fitness = ga.population[0].fitness
         best_generation = ga.current_generation
         count += 1
 
         # Show best chromosome
         ga.print_generation()
-        ga.print_best_chromosome()
+        print("Best Chromosome \t:")
+        for gene in ga.population[0]:
+            print(f"\t\t\t  {gene}")
+        print(f"Best Fitness \t\t: {ga.population[0].fitness}")
         print()
 
         # Plot the traveling salesman path
         if dimensions in (2, 3):
             X = [
                 [
-                    gene.value[i] + (-1)**i * count * widths[i]
-                    for gene
-                    in ga.population[0]
+                    ga.population[0][index].value[i] + (-1)**i * count * widths[i] / (i+1)
+                    for index
+                    in range(-1 if cycle_flag else 0, len(ga.population[0]))
                 ]
                 for i
                 in range(len(ga.population[0][0].value))
