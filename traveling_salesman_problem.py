@@ -14,6 +14,8 @@ while True:
             raise Exception("Invalid, input an integer greater than or equal to 2.")
         if (number_of_points := int(input("Number of points : "))) < 2:
             raise Exception("Invalid, input an integer greater than or equal to 2.")
+        if (population_size := int(input("Number of chromosomes : "))) < 5:
+            raise Exception("Invalid, input an integer greater than or equal to 5.")
         cycle_flag = input("Full cycle? (True/False) : ")
         if cycle_flag in ("True", "true"):
             cycle_flag = True
@@ -57,7 +59,7 @@ ga.permutation_chromosomes()
 ga.generation_goal = 1000
 
 # Use 5 chromosomes per gene/point
-ga.population_size = 10 * number_of_points
+ga.population_size = population_size
 
 # Adapt every 10th generation
 ga.adapt_rate = 0.1
