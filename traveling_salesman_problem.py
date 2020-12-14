@@ -1,7 +1,7 @@
 import EasyGA
 import random
-from math import sqrt
 import matplotlib.pyplot as plt
+from math import sqrt
 from mpl_toolkits.mplot3d import Axes3D
 
 set_value = lambda arg: True
@@ -11,23 +11,33 @@ print()
 while True:
     try:
         if (dimensions := int(input("Dimensions (note 2 or 3 are plottable) : "))) < 2:
-            raise Exception("Invalid, input an integer greater than or equal to 2.")
+            raise ValueError("Invalid, input an integer greater than or equal to 2.")
+
         if (number_of_points := int(input("Number of points : "))) < 2:
-            raise Exception("Invalid, input an integer greater than or equal to 2.")
+            raise ValueError("Invalid, input an integer greater than or equal to 2.")
+
         if (population_size := int(input("Number of chromosomes : "))) < 5:
-            raise Exception("Invalid, input an integer greater than or equal to 5.")
+            raise ValueError("Invalid, input an integer greater than or equal to 5.")
+
         cycle_flag = input("Full cycle? (True/False) : ")
         if cycle_flag in ("True", "true"):
             cycle_flag = True
         elif cycle_flag in ("False", "false"):
             cycle_flag = False
         else:
-            raise Exception("Invalid, input either True or False.")
+            raise ValueError("Invalid, input either True or False.")
+
         if (max_no_change := int(input("Number of generations without change before stopping : "))) < 2:
-            raise Exception("Invalid, input an integer greater than or equal to 1.")
+            raise ValueError("Invalid, input an integer greater than or equal to 1.")
+
+        if not (0 <= (adapt_rate := float(input("Adapt rate : "))) < 1):
+            raise ValueError("Invalid, input a float between 0 and 1.Recommended 0.1.")
+
         break
     except Exception as e:
+        print()
         print(e)
+        print()
 print()
 
 # Collection of random points
@@ -41,13 +51,13 @@ data = [
     in range(number_of_points)
 ]
 
-# The distance between two points
-dist = lambda pnt_1, pnt_2:\
-    sum(
+# The distance between two genes
+dist = lambda gene_1, gene_2:\
+    sqrt(sum(
         (x1 - x2) ** 2
         for x1, x2
-        in zip(pnt_1, pnt_2)
-    )
+        in zip(gene_1.value, gene_2.value)
+    ))
 
 # Create the GA
 ga = EasyGA.GA()
@@ -56,52 +66,87 @@ ga = EasyGA.GA()
 ga.permutation_chromosomes()
 
 # Run for at most this many generations for safety
-ga.generation_goal = 1000
+ga.generation_goal = 10000
 
-# Use 5 chromosomes per gene/point
+# Population size given by the user
 ga.population_size = population_size
 
-# Adapt every 10th generation
-ga.adapt_rate = 0.1
+# Minimize the distance
+ga.target_fitness_type = 'min'
+
+# Adapt rate given by the user
+ga.adapt_rate = adapt_rate
+
+# Gene mutation rates
+ga.gene_mutation_rate = 0.2
+ga.max_gene_mutation_rate = 0.4
+ga.min_gene_mutation_rate = 0
+
+# Chromosome mutation rates
+ga.chromosome_mutation_rate = 0.10
+ga.max_chromosome_mutation_rate = 0.15
+ga.min_chromosome_mutation_rate = 0.05
+
+# Use stochastic arithmetic selection
+ga.parent_selection_impl = EasyGA.Parent_Selection.Rank.stochastic_arithmetic
 
 
-def chromosome_impl():
-    """Randomly shuffle the data points."""
+def greedy_insertion(chromosome, insertion_data):
+    """Applies the greedy algorithm by randomly
+    inserting points into the given chromosome
+    where it minimizes the gained distance."""
 
-    new_data = list(data)
-    random.shuffle(new_data)
-    return new_data
+    # Insert genes in a random order
+    random.shuffle(insertion_data)
 
-ga.chromosome_impl = chromosome_impl
+    # Add one gene if chromosome is empty
+    if len(chromosome) == 0 < len(insertion_data):
+        chromosome.add_gene(insertion_data.pop())
+
+    for gene in insertion_data:
+
+        # Add each gene to the chromosome
+        # at the index which minimizes the
+        # amount of distance it adds to the
+        # current path.
+        chromosome.add_gene(
+            gene,
+            sorted(
+                list(enumerate(
+                    dist(gene, chromosome[i])
+                    if (i == 0 and not cycle_flag) else
+                    dist(gene, chromosome[i-1])
+                    if (i == len(chromosome)) else
+                    sum((
+                        dist(gene, chromosome[i]),
+                        dist(gene, chromosome[i-1]),
+                        -dist(chromosome[i], chromosome[i-1])
+                    ))
+                    for i
+                    in range(len(chromosome)+1)
+                    if not (i == len(chromosome) and cycle_flag)
+                )),
+                key = lambda elem: elem[1]
+            )[0][0]
+        )
+
+    return chromosome
 
 
 @EasyGA.Initialization_Methods._chromosomes_to_population
-@EasyGA.Initialization_Methods._genes_to_chromosome
-@EasyGA.Initialization_Methods._values_to_genes
 def initialization_impl(ga):
     """Initialize population by making random chromosomes
     by starting with a random point and then picking
-    out the closest point one at a time. (Greedy algorithm)
-    Assume there are no duplicate points."""
+    out the nearest neighbor repeatedly."""
 
-    new_data = set(data)
-
-    # Select a random starting point.
-    last_pnt = new_data.pop()
-    yield last_pnt
-
-    # Add on the rest of the points
-    for _ in range(len(new_data)):
-        best_pnt = None
-
-        # Find the closest point to the last point
-        for new_pnt in new_data:
-            if (best_pnt is None) or (dist(last_pnt, best_pnt) > dist(last_pnt, new_pnt)):
-                best_pnt = new_pnt
-
-        yield best_pnt
-        last_pnt = best_pnt
-        new_data.discard(last_pnt)
+    return greedy_insertion(
+        ga.make_chromosome([]),
+        [
+            ga.make_gene(pnt)
+            for pnt
+            in data
+        ]
+    )
 
 ga.initialization_impl = initialization_impl
 
@@ -110,55 +155,37 @@ ga.initialization_impl = initialization_impl
 # points in the chromosome in the given order.
 ga.fitness_function_impl = lambda chromosome:\
     sum(
-        sqrt(dist(chromosome[i].value, chromosome[i-1].value))
+        dist(chromosome[i], chromosome[i-1])
         for i
         in range((0 if cycle_flag else 1), len(chromosome))
     )
 
-ga.target_fitness_type = 'min'
-
 
 def adapt_population():
-    """Adapt the population by applying the greedy algorithm to
-    random chromosomes (other than the best few) at random indexes."""
+    """Adapt the population by optimizing the 1st, 3rd, and 4th chromosomes
+    by removing 25% of their genes and reinserting them greedily."""
 
-    # Avoid the best chromosome,
-    # adapt half of the population.
-    for chromosome in ga.population[1::2]:
+    # For the 1st, 3rd, and 5th chromosomes:
+    for i in range(0, 5, 2):
 
-        # Select a random segment to keep genes from
-        index_1 = random.randrange(len(chromosome))
-        index_2 = random.randrange(len(chromosome))
-        if index_1 > index_2:
-            index_1, index_2 = index_2, index_1
+        # Create a copy of the best chromosome
+        chromosome = ga.make_chromosome(ga.population[i])
 
-        new_data = chromosome[index_1:index_2]
+        # Randomly remove a random amount of the chromosome
+        removed_genes = [
+            chromosome.remove_gene(index)
+            for index
+            in sorted(
+                random.sample(range(len(chromosome)), len(chromosome)//4),
+                reverse = True
+            )
+        ]
 
-        # Add on the rest of the points
-        for _ in range(index_2 - index_1):
-
-            # Randomly add to the left or right side of the segment
-            if random.choice([True, False]):
-                last_pnt = chromosome[index_1-1]
-            else:
-                last_pnt = chromosome[index_2]
-            
-            best_pnt = None
-
-            # Find the closest point to the last point
-            for new_pnt in new_data:
-                if (best_pnt is None) or (dist(last_pnt.value, best_pnt.value) > dist(last_pnt.value, new_pnt.value)):
-                    best_pnt = new_pnt
-
-            # Update segment
-            if last_pnt == chromosome[index_1-1]:
-                chromosome[index_1] = best_pnt
-                index_1 += 1
-            else:
-                chromosome[index_2-1] = best_pnt
-                index_2 -= 1
-
-            new_data.remove(best_pnt)
+        # Replace the worst chromosomes
+        ga.population[-i//2-1] = greedy_insertion(
+            chromosome,
+            removed_genes
+        )
 
 # Custom adapt population method
 ga.adapt_population = adapt_population
@@ -170,52 +197,68 @@ count = -1
 
 widths = [
     max(
-        abs(data[i][k] - data[j][k])
-        for i in range(1, len(data))
+        0.05 + abs(data[i][k] - data[j][k])
+        for i in range(1, number_of_points)
         for j in range(i)
     )
     for k in range(dimensions)
 ]
 
 if dimensions == 2:
-    fig = plt.figure(figsize = [8, 8])
+    fig = plt.figure(figsize = [6, 6])
     ax = fig.add_subplot(111)
 
 elif dimensions == 3:
-    fig = plt.figure(figsize = [8, 8])
+    fig = plt.figure(figsize = [6, 6])
     ax = fig.add_subplot(111, projection = '3d')
 
 while ga.active() and ga.current_generation < best_generation + max_no_change:
     # Evolve 1 generation
-    ga.evolve_generation()
+    ga.evolve(1)
+
+    best_chromosome = ga.population[0]
 
     # Only show if something new happens
-    if not close_float(best_fitness, ga.population[0].fitness):
-        best_fitness = ga.population[0].fitness
+    if not close_float(best_fitness, best_chromosome.fitness):
+        best_fitness = best_chromosome.fitness
         best_generation = ga.current_generation
         count += 1
 
         # Show best chromosome
         ga.print_generation()
         print("Best Chromosome \t:")
-        for gene in ga.population[0]:
+        for gene in best_chromosome:
             print(f"\t\t\t  {gene}")
-        print(f"Best Fitness \t\t: {ga.population[0].fitness}")
+        print(f"Best Fitness \t\t: {best_chromosome.fitness}")
         print()
 
         # Plot the traveling salesman path
         if dimensions in (2, 3):
             X = [
                 [
-                    ga.population[0][index].value[i] + (-1)**i * count * widths[i] / (i+1)
+                    best_chromosome[index].value[i] + (-1)**i * count * widths[i] / (i+1)
                     for index
-                    in range(-1 if cycle_flag else 0, len(ga.population[0]))
+                    in range(-1 if cycle_flag else 0, len(best_chromosome))
                 ]
                 for i
-                in range(len(ga.population[0][0].value))
+                in range(dimensions)
             ]
             ax.plot(*X)
             ax.scatter(*X)
+
+    # Show progress after adapting
+    elif int(adapt_counter := ga.adapt_rate*ga.current_generation) > int(adapt_counter - ga.adapt_rate):
+
+        # Show best chromosome
+        ga.print_generation()
+        print("Best Chromosome \t:")
+        for gene in best_chromosome:
+            print(f"\t\t\t  {gene}")
+        print(f"Best Fitness \t\t: {best_chromosome.fitness}")
+        print()
+
+ga.print_generation()
+ga.print_population()
 
 # Show the traveling salesman paths
 if dimensions in (2, 3):
