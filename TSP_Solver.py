@@ -22,19 +22,16 @@ class TSP_Solver(GA):
     See https://github.com/danielwilczak101/EasyGA/wiki for more details on how to use EasyGA.
     """
 
-    #================================#
-    # TSP_Solver Constant Attributes #
-    #================================#
+    #=============================#
+    # TSP_Solver Built-in Methods #
+    #=============================#
 
-    update_fitness = False
-    _target_fitness_type = 'min'
-    adapt_probability_rate = 0
-    parent_ratio = 0.05
-    chromosome_mutation_rate = 0.03
-    best_generation = 0
-    best_chromosome = None
     parent_selection_impl = Parent.Rank.stochastic_arithmetic
     mutation_population_impl = Mutation.Population.best_replace_worst
+
+    #================#
+    # Initialization #
+    #================#
 
     def __init__(
             self,
@@ -56,6 +53,12 @@ class TSP_Solver(GA):
         self.population_size = population_size
         self.adapt_rate = adapt_rate
         self.cycle = int(cycle)
+        self.update_fitness = False
+        self.target_fitness_type = 'min'
+        self.adapt_probability_rate = 0
+        self.parent_ratio = 0.05
+        self.best_generation = 0
+        self.best_chromosome = None
 
         # Termination attributes
         self.generation_goal = max_generation
@@ -81,6 +84,9 @@ class TSP_Solver(GA):
             in range(self.population_size)
         )
 
+    #========================#
+    # Fitness related methods#
+    #========================#
 
     def dist(self, gene_1, gene_2):
         """Euclidean norm between two points given by sqrt((x1-x2)^2 + (y1-y2)^2 + ...).
@@ -105,6 +111,9 @@ class TSP_Solver(GA):
             in range(1-self.cycle, len(chromosome))
         )
 
+    #============#
+    # Heuristics #
+    #============#
 
     def greedy_insertion(self, chromosome, insertion_data):
         """Applies a greedy algorithm by randomly inserting points into the given
@@ -155,6 +164,9 @@ class TSP_Solver(GA):
 
         return chromosome
 
+    #===================#
+    # Custom GA Methods #
+    #===================#
 
     def crossover_individual_impl(self, parent_1, parent_2):
         """Crosses two parents by keeping parts of the paths that they share
@@ -196,7 +208,7 @@ class TSP_Solver(GA):
 
 
     def mutation_individual_impl(self, chromosome):
-        """Mutate a chromosome by randomly removing genes and re-inserting them."""
+        """Mutate a chromosome by randomly removing sqrt(n) genes and re-inserting them."""
 
         removed_genes = [
             chromosome.pop(index)
@@ -204,7 +216,7 @@ class TSP_Solver(GA):
             in sorted(
                 random.sample(
                     range(len(chromosome)),
-                    int(self.gene_mutation_rate*len(chromosome)+1)
+                    int(np.sqrt(len(chromosome))+1)
                 ),
                 reverse = True
             )
@@ -216,7 +228,8 @@ class TSP_Solver(GA):
 
     def adapt_population(self):
         """Adapt the population by applying 2-opt to the best chromosome,
-        and then attempt to greedily re-insert every chromosome one by one."""
+        and then attempt to greedily re-insert every chromosome one by one,
+        and then search for the best point to split the cycle (if wanted)."""
 
         # Modify the best chromosome
         chromosome = self.population[0]
@@ -237,6 +250,29 @@ class TSP_Solver(GA):
         for i, gene in enumerate(chromosome):
             chromosome.pop(i)
             self.greedy_insertion(chromosome, [gene])
+
+        # Find the best spot to split the full cycle if a full cycle is not wanted
+        if self.cycle == 0:
+
+            # Search by maximum value
+            i = max(
+
+                # Track the index for splitting at i, i-1
+                enumerate(
+
+                    # Distance of splitting point
+                    self.dist(chromosome[i], chromosome[i-1])
+                    for i
+                    in range(len(chromosome))
+                ),
+
+                # Maximize by distance
+                key = lambda elem: elem[1]
+
+            # Return by index
+            )[0]
+
+            chromosome[:] = chromosome[i:] + chromosome[:i]
 
 
     def termination_impl(self):
@@ -263,6 +299,7 @@ class TSP_Solver(GA):
         return self.current_generation < min(self.generation_goal, self.best_generation + self.change_goal)
 
 
+# If this file is being run directly, show an example using TSP_Solver()
 if __name__ == '__main__':
 
     from matplotlib import animation, rc
@@ -341,7 +378,7 @@ if __name__ == '__main__':
     # Make figure, plot, and line
     fig = plt.figure(figsize = (7, 7))
     ax = fig.add_subplot(projection = '3d' if dimensions == 3 else None)
-    line, = ax.plot([], [], 'mo--')
+    line, = ax.plot([], [], 'bo-')
 
     # Set axis limits to (0, 1)
     ax.set_xlim((0, 1))
@@ -413,6 +450,7 @@ if __name__ == '__main__':
     {adapt_rate} adapt rate (once every {round(1/adapt_rate, 2) if adapt_rate>0 else float('inf')} generations)
     {max_no_change} generations without change
     {max_generation} generations run at most
+    {file_name}.gif is your gif file.
     """)
 
     # Animate plot
